@@ -8,5 +8,11 @@ unionSumTypes "FooBarType" [''FooType, ''BarType]
 deriving instance Show FooBarType
 deriving instance Eq FooBarType
 
+toMainTypeConversion ''FooType ''FooBarType
+toMainTypeConversion ''BarType ''FooBarType
+
+foo1 :: FooBarType
+foo1 = fooTypeToFooBarType $ Foo1FooType "bill"
+
 main :: IO ()
-main = putStrLn $ if Foo1FooBarType "bill" /= BarFooBarType then "pass" else "fail"
+main = putStrLn $ if foo1 /= BarFooBarType then "pass" else "fail"

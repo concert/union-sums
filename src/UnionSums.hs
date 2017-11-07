@@ -1,9 +1,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module UnionSums (unionSumTypes) where
+module UnionSums (unionSumTypes, toMainTypeConversion) where
 
 import Control.Error.Util
 import Control.Monad (join)
+import Data.Char (toLower)
+import Data.Maybe (fromJust)
 import Data.Text (pack, unpack)
 import qualified Data.Text as Text
 
@@ -32,20 +34,46 @@ unionSumTypes newNameStr typeNames =
     mkNewConstructors typeName = do
       info <- reify typeName
       case info of
-        (TyConI (DataD _ _ _ _ constructors _)) ->
-          either fail return $ mapM (modConstructor typeName) constructors
+        (TyConI dec) ->
+          either fail return $ mapM (modConstructor typeName) $ getConstructors dec
         _ -> fail $ nameBase typeName ++ " must be a sum type"
 
     modConstructor :: Name -> Con -> Either String Con
     modConstructor typeName (NormalC conName args) =
-        (\n -> (NormalC (mkName $ n ++ newNameStr) args)) <$>
+        (\n -> NormalC (mkName n) args) <$>
         note "Constructor name missing type name suffix"
-          (stripNameSuffix typeName conName)
+          (changeSuffix (nameBase typeName) newNameStr (nameBase conName))
     modConstructor _ _ = fail "Unrecognised constructor pattern"
 
-    stripNameSuffix :: Name -> Name -> Maybe String
-    stripNameSuffix suf = stripSuffix (nameBase suf) . nameBase
+toMainTypeConversion :: Name -> Name -> Q [Dec]
+toMainTypeConversion subName mainName = do
+    ft <- [t| $(conT subName) -> $(conT mainName) |]
+    subDec <- unTy <$> reify subName
+    f <- fun $ getConstructors subDec
+    return [sig ft, f]
+  where
+    sig t = SigD name t
+    unTy (TyConI d) = d
+    tOfDec (DataD _ _ _ k _ _) = fromJust k
+    fun subCons = clauses subCons >>= return . (FunD name)
+    name = mkName $ lowerFirst $ (nameBase subName) ++ "To" ++ (nameBase mainName)
+    clauses subCons = mapM toClause subCons
+    swapSuffix n = mkName $ fromJust $ changeSuffix (nameBase subName) (nameBase mainName) $ nameBase n
+    toClause (NormalC conName args) = do
+        argNames <- mapM (const $ newName "a") args
+        return $ Clause (conPattern conName argNames) (recon (swapSuffix conName) argNames) []
+    conPattern conName argNames = [ConP conName $ map VarP argNames]
+    recon mainConName argNames = NormalB $ foldl AppE (ConE mainConName) $ map VarE argNames
 
+getConstructors :: Dec -> [Con]
+getConstructors (DataD _ _ _ _ cs _) = cs
+getConstructors _ = error "Could not get constructors"
+
+changeSuffix :: String -> String -> String -> Maybe String
+changeSuffix startSuffix endSuffix var = (\n -> n ++ endSuffix) <$> (stripSuffix startSuffix var)
 
 stripSuffix :: String -> String -> Maybe String
 stripSuffix suf = fmap unpack . Text.stripSuffix (pack suf) . pack
+
+lowerFirst :: String -> String
+lowerFirst (c:s) = toLower c : s
