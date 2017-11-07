@@ -37,9 +37,9 @@ unionSumTypes newNameStr typeNames =
 
     modConstructor :: Name -> Con -> Either String Con
     modConstructor typeName (NormalC conName args) =
-        (\n -> NormalC (mkName n) args) <$>
+        (flip NormalC args) <$>
         note "Constructor name missing type name suffix"
-          (changeSuffix (nameBase typeName) newNameStr (nameBase conName))
+          (changeSuffix typeName (mkName newNameStr) conName)
     modConstructor _ _ = fail "Unrecognised constructor pattern"
 
 mkConverter :: Name -> Name -> Q [Dec]
@@ -49,7 +49,7 @@ mkConverter subName unionName = do
     return [SigD name ft, FunD name cs]
   where
     name = mkName $ lowerFirst $ (nameBase subName) ++ "To" ++ (nameBase unionName)
-    swapSuffix n = mkName $ fromJust $ changeSuffix (nameBase subName) (nameBase unionName) $ nameBase n
+    swapSuffix = fromJust . changeSuffix subName unionName
     toClause (NormalC conName args) = do
         argNames <- mapM (const $ newName "a") args
         return $ Clause (conPattern conName argNames) (recon (swapSuffix conName) argNames) []
@@ -65,8 +65,9 @@ getConstructors n = do
             _ -> fail $ (nameBase n) ++ " does not only contain data definitions"
         _ -> fail $ (nameBase n) ++ " must be a sum type"
 
-changeSuffix :: String -> String -> String -> Maybe String
-changeSuffix oldSuffix newSuffix var = (++ newSuffix) <$> (stripSuffix oldSuffix var)
+changeSuffix :: Name -> Name -> Name -> Maybe Name
+changeSuffix oldSuffix newSuffix var = mkName . (++ (nameBase newSuffix)) <$>
+    stripSuffix (nameBase oldSuffix) (nameBase var)
 
 stripSuffix :: String -> String -> Maybe String
 stripSuffix suf = fmap unpack . Text.stripSuffix (pack suf) . pack
