@@ -43,13 +43,13 @@ unionSumTypes newNameStr typeNames =
     modConstructor _ _ = fail "Unrecognised constructor pattern"
 
 mkConverter :: Name -> Name -> Q [Dec]
-mkConverter subName mainName = do
-    ft <- [t| $(conT subName) -> $(conT mainName) |]
+mkConverter subName unionName = do
+    ft <- [t| $(conT subName) -> $(conT unionName) |]
     cs <- getConstructors subName >>= mapM toClause
     return [SigD name ft, FunD name cs]
   where
-    name = mkName $ lowerFirst $ (nameBase subName) ++ "To" ++ (nameBase mainName)
-    swapSuffix n = mkName $ fromJust $ changeSuffix (nameBase subName) (nameBase mainName) $ nameBase n
+    name = mkName $ lowerFirst $ (nameBase subName) ++ "To" ++ (nameBase unionName)
+    swapSuffix n = mkName $ fromJust $ changeSuffix (nameBase subName) (nameBase unionName) $ nameBase n
     toClause (NormalC conName args) = do
         argNames <- mapM (const $ newName "a") args
         return $ Clause (conPattern conName argNames) (recon (swapSuffix conName) argNames) []
