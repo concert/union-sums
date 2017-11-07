@@ -45,14 +45,10 @@ unionSumTypes newNameStr typeNames =
 mkConverter :: Name -> Name -> Q [Dec]
 mkConverter subName mainName = do
     ft <- [t| $(conT subName) -> $(conT mainName) |]
-    subCons <- getConstructors subName
-    f <- fun $ subCons
-    return [sig ft, f]
+    cs <- getConstructors subName >>= mapM toClause
+    return [SigD name ft, FunD name cs]
   where
-    sig t = SigD name t
-    fun subCons = clauses subCons >>= return . (FunD name)
     name = mkName $ lowerFirst $ (nameBase subName) ++ "To" ++ (nameBase mainName)
-    clauses subCons = mapM toClause subCons
     swapSuffix n = mkName $ fromJust $ changeSuffix (nameBase subName) (nameBase mainName) $ nameBase n
     toClause (NormalC conName args) = do
         argNames <- mapM (const $ newName "a") args
