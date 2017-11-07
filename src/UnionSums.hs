@@ -54,7 +54,6 @@ toMainTypeConversion subName mainName = do
   where
     sig t = SigD name t
     unTy (TyConI d) = d
-    tOfDec (DataD _ _ _ k _ _) = fromJust k
     fun subCons = clauses subCons >>= return . (FunD name)
     name = mkName $ lowerFirst $ (nameBase subName) ++ "To" ++ (nameBase mainName)
     clauses subCons = mapM toClause subCons
