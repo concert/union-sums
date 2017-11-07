@@ -32,11 +32,8 @@ unionSumTypes newNameStr typeNames =
     return [DataD [] (mkName newNameStr) [] Nothing newConstructors []]
   where
     mkNewConstructors typeName = do
-      info <- reify typeName
-      case info of
-        (TyConI dec) ->
-          either fail return $ mapM (modConstructor typeName) $ getConstructors dec
-        _ -> fail $ nameBase typeName ++ " must be a sum type"
+      cons <- getConstructors typeName
+      either fail return $ mapM (modConstructor typeName) cons
 
     modConstructor :: Name -> Con -> Either String Con
     modConstructor typeName (NormalC conName args) =
@@ -48,12 +45,11 @@ unionSumTypes newNameStr typeNames =
 toMainTypeConversion :: Name -> Name -> Q [Dec]
 toMainTypeConversion subName mainName = do
     ft <- [t| $(conT subName) -> $(conT mainName) |]
-    subDec <- unTy <$> reify subName
-    f <- fun $ getConstructors subDec
+    subCons <- getConstructors subName
+    f <- fun $ subCons
     return [sig ft, f]
   where
     sig t = SigD name t
-    unTy (TyConI d) = d
     fun subCons = clauses subCons >>= return . (FunD name)
     name = mkName $ lowerFirst $ (nameBase subName) ++ "To" ++ (nameBase mainName)
     clauses subCons = mapM toClause subCons
@@ -64,9 +60,14 @@ toMainTypeConversion subName mainName = do
     conPattern conName argNames = [ConP conName $ map VarP argNames]
     recon mainConName argNames = NormalB $ foldl AppE (ConE mainConName) $ map VarE argNames
 
-getConstructors :: Dec -> [Con]
-getConstructors (DataD _ _ _ _ cs _) = cs
-getConstructors _ = error "Could not get constructors"
+getConstructors :: Name -> Q [Con]
+getConstructors n = do
+    info <- reify n
+    case info of
+        (TyConI dec) -> case dec of
+            (DataD _ _ _ _ cs _) -> return cs
+            _ -> fail $ (nameBase n) ++ " does not only contain data definitions"
+        _ -> fail $ (nameBase n) ++ " must be a sum type"
 
 changeSuffix :: String -> String -> String -> Maybe String
 changeSuffix startSuffix endSuffix var = (\n -> n ++ endSuffix) <$> (stripSuffix startSuffix var)
