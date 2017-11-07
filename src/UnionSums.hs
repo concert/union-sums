@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module UnionSums (unionSumTypes, toMainTypeConversion) where
+module UnionSums (unionSumTypes, mkConverter) where
 
 import Control.Error.Util
 import Control.Monad (join)
@@ -42,8 +42,8 @@ unionSumTypes newNameStr typeNames =
           (changeSuffix (nameBase typeName) newNameStr (nameBase conName))
     modConstructor _ _ = fail "Unrecognised constructor pattern"
 
-toMainTypeConversion :: Name -> Name -> Q [Dec]
-toMainTypeConversion subName mainName = do
+mkConverter :: Name -> Name -> Q [Dec]
+mkConverter subName mainName = do
     ft <- [t| $(conT subName) -> $(conT mainName) |]
     subCons <- getConstructors subName
     f <- fun $ subCons

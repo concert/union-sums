@@ -8,8 +8,8 @@ unionSumTypes "FooBarType" [''FooType, ''BarType]
 deriving instance Show FooBarType
 deriving instance Eq FooBarType
 
-toMainTypeConversion ''FooType ''FooBarType
-toMainTypeConversion ''BarType ''FooBarType
+mkConverter ''FooType ''FooBarType
+mkConverter ''BarType ''FooBarType
 
 foo1 :: FooBarType
 foo1 = fooTypeToFooBarType $ Foo1FooType "bill"
