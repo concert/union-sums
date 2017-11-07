@@ -1,9 +1,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module UnionSums (unionSumTypes) where
+module UnionSums (unionSumTypes, mkConverter) where
 
 import Control.Error.Util
 import Control.Monad (join)
+import Data.Char (toLower)
+import Data.Maybe (fromJust)
 import Data.Text (pack, unpack)
 import qualified Data.Text as Text
 
@@ -30,22 +32,45 @@ unionSumTypes newNameStr typeNames =
     return [DataD [] (mkName newNameStr) [] Nothing newConstructors []]
   where
     mkNewConstructors typeName = do
-      info <- reify typeName
-      case info of
-        (TyConI (DataD _ _ _ _ constructors _)) ->
-          either fail return $ mapM (modConstructor typeName) constructors
-        _ -> fail $ nameBase typeName ++ " must be a sum type"
+      cons <- getConstructors typeName
+      either fail return $ mapM (modConstructor typeName) cons
 
     modConstructor :: Name -> Con -> Either String Con
     modConstructor typeName (NormalC conName args) =
-        (\n -> (NormalC (mkName $ n ++ newNameStr) args)) <$>
+        (flip NormalC args) <$>
         note "Constructor name missing type name suffix"
-          (stripNameSuffix typeName conName)
+          (changeSuffix typeName (mkName newNameStr) conName)
     modConstructor _ _ = fail "Unrecognised constructor pattern"
 
-    stripNameSuffix :: Name -> Name -> Maybe String
-    stripNameSuffix suf = stripSuffix (nameBase suf) . nameBase
+mkConverter :: Name -> Name -> Q [Dec]
+mkConverter subName unionName = do
+    ft <- [t| $(conT subName) -> $(conT unionName) |]
+    cs <- getConstructors subName >>= mapM toClause
+    return [SigD name ft, FunD name cs]
+  where
+    name = mkName $ lowerFirst $ (nameBase subName) ++ "To" ++ (nameBase unionName)
+    swapSuffix = fromJust . changeSuffix subName unionName
+    toClause (NormalC conName args) = do
+        argNames <- mapM (const $ newName "a") args
+        return $ Clause (conPattern conName argNames) (recon (swapSuffix conName) argNames) []
+    conPattern conName argNames = [ConP conName $ map VarP argNames]
+    recon mainConName argNames = NormalB $ foldl AppE (ConE mainConName) $ map VarE argNames
 
+getConstructors :: Name -> Q [Con]
+getConstructors n = do
+    info <- reify n
+    case info of
+        (TyConI dec) -> case dec of
+            (DataD _ _ _ _ cs _) -> return cs
+            _ -> fail $ (nameBase n) ++ " does not only contain data definitions"
+        _ -> fail $ (nameBase n) ++ " must be a sum type"
+
+changeSuffix :: Name -> Name -> Name -> Maybe Name
+changeSuffix oldSuffix newSuffix var = mkName . (++ (nameBase newSuffix)) <$>
+    stripSuffix (nameBase oldSuffix) (nameBase var)
 
 stripSuffix :: String -> String -> Maybe String
 stripSuffix suf = fmap unpack . Text.stripSuffix (pack suf) . pack
+
+lowerFirst :: String -> String
+lowerFirst (c:s) = toLower c : s
