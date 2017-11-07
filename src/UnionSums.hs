@@ -70,7 +70,7 @@ getConstructors n = do
         _ -> fail $ (nameBase n) ++ " must be a sum type"
 
 changeSuffix :: String -> String -> String -> Maybe String
-changeSuffix startSuffix endSuffix var = (\n -> n ++ endSuffix) <$> (stripSuffix startSuffix var)
+changeSuffix oldSuffix newSuffix var = (++ newSuffix) <$> (stripSuffix oldSuffix var)
 
 stripSuffix :: String -> String -> Maybe String
 stripSuffix suf = fmap unpack . Text.stripSuffix (pack suf) . pack
