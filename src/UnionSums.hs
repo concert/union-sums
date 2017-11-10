@@ -1,9 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module UnionSums (unionSumTypes, mkConverter) where
+module UnionSums (unionSumTypes, mkConverter, mkDecompose) where
 
 import Control.Error.Util
-import Control.Monad (join)
+import Control.Monad (join, zipWithM)
 import Data.Char (toLower)
 import Data.Maybe (fromJust)
 import Data.Text (pack, unpack)
@@ -17,13 +17,13 @@ import Language.Haskell.TH
 --   the original type name suffix has been replaced with the name of the new
 --   type. E.g.
 --
---   data FooType = Foo1FooType | Foo2FooType
---   data BarType = BarBarType
---   unionSumTypes "FooBarType" [''FooType, ''BarType]
+--   data SubTypeA = FooSubTypeA Int | BarSubTypeA Char
+--   data SubTypeB = BazSubTypeB
+--   unionSumTypes "BigType" [''SubTypeA, ''SubTypeB]
 --
---   provides
+--   defines
 --
---   data FooBarType = Foo1FooBarType | Foo2FooBarType | BarFooBarType
+--   data BigType = FooBigType Int | BarBigType Char | BazBigType
 unionSumTypes :: String -> [Name] -> Q [Dec]
 unionSumTypes _ [] = return []
 unionSumTypes newNameStr typeNames =
@@ -42,6 +42,18 @@ unionSumTypes newNameStr typeNames =
           (changeSuffix typeName (mkName newNameStr) conName)
     modConstructor _ _ = fail "Unrecognised constructor pattern"
 
+-- | Produces a converter from a "smaller" sum type to a "bigger" sum type. It's
+--   required that the names of the constructors are suffixed with the type name
+--   and that the names of the constructors of the small and big types match
+--   once the suffixes have been removed. E.g.
+--
+--   mkConverter ''SubTypeA ''BigType
+--
+--   defines
+--
+--   subTypeAToBigType :: SubTypeA -> BigType
+--   subTypeAToBigType (FooSubTypeA i) = FooBigType i
+--   subTypeAToBigType (BarSubTypeA c) = FooBigType c
 mkConverter :: Name -> Name -> Q [Dec]
 mkConverter subName unionName = do
     ft <- [t| $(conT subName) -> $(conT unionName) |]
@@ -74,3 +86,49 @@ stripSuffix suf = fmap unpack . Text.stripSuffix (pack suf) . pack
 
 lowerFirst :: String -> String
 lowerFirst (c:s) = toLower c : s
+
+replace :: Int -> a -> [a] -> [a]
+replace i a as = go 0 as
+  where
+    go _ [] = []
+    go currI (x:xs) =
+      let val = if currI == i then a else x in
+      val : go (currI + 1) xs
+
+-- | Produces a conversion function akin to `either` for converting "bigger"
+--   types into some other type via a value of their "smaller" type. E.g.
+--
+--   mkDecompose ''BigType [''SubTypeA, ''SubTypB]
+--
+--   defines
+--
+--   decomposeBigType :: (SubTypeA -> a) -> (SubTypeB -> a) -> BigType -> a
+--   decomposeBigType f _ (FooBigType i) = f (FooSubTypeA i)
+--   decomposeBigType f _ (BarBigType c) = f (BarSubTypeA c)
+--   decomposeBigType _ g BazBigType = g BazSubTypeB
+mkDecompose :: Name -> [Name] -> Q [Dec]
+mkDecompose unionName subNames = do
+    -- FIXME: this should probably only be called by our code, because otherwise
+    -- users could scuff up which sub-types they include for the main type.
+    unionCons <- getConstructors unionName
+    subConss <- mapM getConstructors subNames
+    let subConIdxs = mconcat $ zipWith replicate (length <$> subConss) [0..]
+    clauses <- zipWithM mkClause unionCons $ zip subConIdxs (mconcat subConss)
+    return [SigD name ft, FunD name clauses]
+  where
+    name = mkName $ "decompose" ++ nameBase unionName
+    mkArrow t1 t2 = AppT (AppT ArrowT t1) t2
+    a = VarT $ mkName "a"
+    arrows = flip mkArrow a <$> ConT <$> subNames
+    ft = foldr mkArrow (mkArrow (ConT unionName) a) arrows
+    mkClause :: Con -> (Int, Con) -> Q Clause
+    mkClause (NormalC conNameU argsU) (i, (NormalC conNameS argsS)) = do
+        -- We assume argsU and argsS have been lined up correctly!
+        argNames <- mapM (const $ newName "a") argsU
+        _Pats <- mapM (const $ return WildP) subNames
+        let fPats = replace i (VarP $ mkName "f") _Pats
+        return $ Clause
+          (fPats ++ [ConP conNameU $ fmap VarP argNames])
+          (NormalB $ AppE (VarE $ mkName "f") $
+             foldl AppE (ConE conNameS) $ fmap VarE argNames)
+          []
