@@ -125,7 +125,7 @@ mkDecompose unionName subNames = do
     mkClause (NormalC conNameU argsU) (i, (NormalC conNameS argsS)) = do
         -- We assume argsU and argsS have been lined up correctly!
         argNames <- mapM (const $ newName "a") argsU
-        _Pats <- mapM (const $ return . VarP $ mkName "_") subNames
+        _Pats <- mapM (const $ return WildP) subNames
         let fPats = replace i (VarP $ mkName "f") _Pats
         return $ Clause
           (fPats ++ [ConP conNameU $ fmap VarP argNames])
